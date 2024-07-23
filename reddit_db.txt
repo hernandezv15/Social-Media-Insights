@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS trends (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title TEXT,
+    score INTEGER,
+    url TEXT,
+    num_comments INTEGER,
+    created_utc DATETIME,
+    subreddit TEXT
+);
