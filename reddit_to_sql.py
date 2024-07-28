@@ -1,8 +1,6 @@
 import praw
-import prawcore
 import mysql.connector
 from mysql.connector import Error
-import time
 
 # Reddit API credentials
 client_id = '8Y2JBExANVg2hUsbSmDHow'
@@ -13,55 +11,86 @@ user_agent = 'windows:beauty_trends:1'
 reddit = praw.Reddit(client_id=client_id, client_secret=client_secret, user_agent=user_agent)
 
 # Subreddits to get posts from
-subreddits = ['beauty', 'makeup']
+subreddits = ['beauty', 'makeup', 'makeupaddiction', 'skincareaddiction', 'hair']
 
-# Keywords to look for
-keywords = ['beauty', 'makeup', 'skincare', 'cosmetics', 'hair', 'skin']
+def load_keywords_with_categories(cursor):
+    """Loads keywords and their categories from the database into a dictionary."""
+    cursor.execute("SELECT keyword, category_id FROM keywords")
+    results = cursor.fetchall()
+    return {row[0]: row[1] for row in results}
 
-def extract_keywords(title):
-    return ','.join([keyword for keyword in keywords if keyword.lower() in title.lower()])
+def extract_keywords(title, keyword_categories):
+    """Extracts keywords from a title based on predefined keywords."""
+    return [keyword for keyword in keyword_categories if keyword.lower() in title.lower()]
 
-def fetch_posts(subreddit_name, retries=3, delay=5):
-    for attempt in range(retries):
-        try:
-            subreddit = reddit.subreddit(subreddit_name)
-            return list(subreddit.hot(limit=50))
-        except prawcore.exceptions.RequestException as e:
-            print(f"Error fetching posts from subreddit {subreddit_name} (attempt {attempt+1}): {e}")
-            time.sleep(delay)
-    return []
+def fetch_posts(subreddit_name):
+    """Fetches posts from a specified subreddit."""
+    try:
+        subreddit = reddit.subreddit(subreddit_name)
+        return list(subreddit.hot(limit=100))
+    except Exception as e:
+        print(f"Error fetching posts from subreddit {subreddit_name}: {e}")
+        return []
 
-try:
-    # Connect to MySQL database
-    connection = mysql.connector.connect(
-        host='localhost',
-        database='reddit_trends_db',
-        user='root',
-        password='Lenovo_sql1541@'
-    )
+def fetch_subreddit_id(cursor, subreddit_name):
+    """Fetches or inserts the subreddit id for a given subreddit name."""
+    cursor.execute("SELECT subreddit_id FROM subreddits WHERE name = %s", (subreddit_name,))
+    result = cursor.fetchone()
+    if result:
+        return result[0]
+    else:
+        cursor.execute("INSERT INTO subreddits (name) VALUES (%s)", (subreddit_name,))
+        return cursor.lastrowid
 
-    if connection.is_connected():
-        cursor = connection.cursor()
-        cursor.execute('USE reddit_trends_db')
+def insert_data_into_db(posts, cursor, subreddit_name, keyword_categories):
+    """Inserts posts and their related keywords into the database."""
+    subreddit_id = fetch_subreddit_id(cursor, subreddit_name)
+    for post in posts:
+        cursor.execute(
+            "INSERT INTO posts (title, score, url, num_comments, created_utc, subreddit_id) VALUES (%s, %s, %s, %s, FROM_UNIXTIME(%s), %s)",
+            (post.title, post.score, post.url, post.num_comments, post.created_utc, subreddit_id)
+        )
+        post_id = cursor.lastrowid
 
-        # Fetch and insert data from each subreddit
+        # Extract and insert keywords
+        post_keywords = extract_keywords(post.title, keyword_categories)
+        for keyword in post_keywords:
+            cursor.execute("SELECT keyword_id FROM keywords WHERE keyword = %s", (keyword,))
+            keyword_id = cursor.fetchone()[0]
+            cursor.execute("INSERT INTO post_keywords (post_id, keyword_id) VALUES (%s, %s)", (post_id, keyword_id))
+            if keyword_categories[keyword]:
+                update_post_category(cursor, post_id, keyword_categories[keyword])
+
+def update_post_category(cursor, post_id, category_id):
+    """Updates the category ID of a post."""
+    query = """
+    UPDATE posts
+    SET category_id = %s
+    WHERE post_id = %s;
+    """
+    cursor.execute(query, (category_id, post_id))
+    print(f"Updated post {post_id} with category_id {category_id}")
+
+def main():
+    """Main function to handle the workflow."""
+    try:
+        connection = mysql.connector.connect(host='localhost', database='reddit_trends_db', user='root', password='password')
+        cursor = connection.cursor(buffered=True)
+        keyword_categories = load_keywords_with_categories(cursor)
         for subreddit_name in subreddits:
-            trending_posts = fetch_posts(subreddit_name)
-            
-            for post in trending_posts:
-                post_keywords = extract_keywords(post.title)
-                cursor.execute(
-                    "INSERT INTO trends (title, score, url, num_comments, created_utc, subreddit, keywords) VALUES (%s, %s, %s, %s, FROM_UNIXTIME(%s), %s, %s)",
-                    (post.title, post.score, post.url, post.num_comments, post.created_utc, subreddit_name, post_keywords)
-                )
-        
+            print(f"Fetching posts from /r/{subreddit_name}")
+            posts = fetch_posts(subreddit_name)
+            if posts:
+                insert_data_into_db(posts, cursor, subreddit_name, keyword_categories)
         connection.commit()
-        print("Data inserted successfully into the database.")
+        print("All data has been inserted and processed successfully.")
+    except Error as e:
+        print(f"Database error: {e}")
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
+            print("MySQL connection is closed.")
 
-except Error as e:
-    print(f"Error: {e}")
-finally:
-    if connection.is_connected():
-        cursor.close()
-        connection.close()
-        print("MySQL connection is closed.")
+if __name__ == "__main__":
+    main()

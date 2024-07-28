@@ -1,9 +1,62 @@
-CREATE TABLE IF NOT EXISTS trends (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    title TEXT,
-    score INTEGER,
-    url TEXT,
-    num_comments INTEGER,
-    created_utc DATETIME,
-    subreddit TEXT
+-- Use the existing database or create a new one if necessary
+CREATE DATABASE IF NOT EXISTS reddit_trends_db;
+USE reddit_trends_db;
+-- Complete schema setup including categories and keywords initialization
+
+-- Subreddits table
+CREATE TABLE IF NOT EXISTS subreddits (
+    subreddit_id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL
 );
+
+-- Categories table
+CREATE TABLE IF NOT EXISTS categories (
+    category_id INT AUTO_INCREMENT PRIMARY KEY,
+    category_name VARCHAR(100) UNIQUE NOT NULL
+);
+
+-- Keywords table
+CREATE TABLE IF NOT EXISTS keywords (
+    keyword_id INT AUTO_INCREMENT PRIMARY KEY,
+    keyword VARCHAR(50) UNIQUE NOT NULL,
+    category_id INT,
+    FOREIGN KEY (category_id) REFERENCES categories(category_id) ON DELETE SET NULL
+);
+
+-- Posts table
+CREATE TABLE IF NOT EXISTS posts (
+    post_id INT AUTO_INCREMENT PRIMARY KEY,
+    title TEXT NOT NULL,
+    score INT NOT NULL,
+    url VARCHAR(255) NOT NULL,
+    num_comments INT NOT NULL,
+    created_utc DATETIME NOT NULL,
+    subreddit_id INT,
+    category_id INT DEFAULT NULL,
+    FOREIGN KEY (subreddit_id) REFERENCES subreddits(subreddit_id) ON DELETE CASCADE,
+    FOREIGN KEY (category_id) REFERENCES categories(category_id) ON DELETE SET NULL
+);
+
+-- Post_keywords table
+CREATE TABLE IF NOT EXISTS post_keywords (
+    post_id INT,
+    keyword_id INT,
+    PRIMARY KEY (post_id, keyword_id),
+    FOREIGN KEY (post_id) REFERENCES posts(post_id) ON DELETE CASCADE,
+    FOREIGN KEY (keyword_id) REFERENCES keywords(keyword_id) ON DELETE CASCADE
+);
+
+-- Insert categories
+INSERT INTO categories (category_name) VALUES 
+('Makeup'), 
+('Skincare'),
+('Haircare'),
+('Hair Removal'),
+('General Beauty');
+
+INSERT IGNORE INTO keywords (keyword, category_id) VALUES 
+('makeup', 1), ('eyebrow', 1), ('brow', 1), ('lip', 1), ('lips', 1), ('eye', 1), ('eyeshadow', 1), ('mascara', 1),
+('skincare', 2), ('tips', 5), ('hacks', 5), ('skin', 2), ('sunscreen', 2), ('facial', 2),
+('hair', 3), ('dye', 3), ('shave', 4), ('scalp', 3), ('waxing', 4),
+('beauty', 5), ('lashes', 1), ('nails', 5), ('foundation', 1), ('blush', 1), ('lash', 1), ('look', 5),
+('drugstore', 5), ('drug store', 5), ('dupe', 5), ('dupes', 5);
